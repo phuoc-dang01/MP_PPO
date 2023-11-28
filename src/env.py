@@ -4,22 +4,7 @@ import numpy as np
 import core as abrenv
 import load_trace
 
-# bit_rate, buffer_size, next_chunk_size, bandwidth_measurement(throughput and time), chunk_til_video_end
-S_INFO = 6
-S_LEN = 8  # take how many frames in the past
-A_DIM = 6
-TRAIN_SEQ_LEN = 100  # take as a train batch
-MODEL_SAVE_INTERVAL = 100
-VIDEO_BIT_RATE = np.array([300.0, 750.0, 1200.0, 1850.0, 2850.0, 4300.0])  # Kbps
-BUFFER_NORM_FACTOR = 10.0
-CHUNK_TIL_VIDEO_END_CAP = 48.0
-M_IN_K = 1000.0
-REBUF_PENALTY = 4.3  # 1 sec rebuffering -> 3 Mbps
-SMOOTH_PENALTY = 1
-DEFAULT_QUALITY = 1  # default video quality without agent
-RANDOM_SEED = 42
-RAND_RANGE = 1000
-EPS = 1e-6
+from const import *
 
 
 class ABREnv:
@@ -32,9 +17,10 @@ class ABREnv:
             random_seed=random_seed,
         )
 
-        self.last_bit_rate = DEFAULT_QUALITY
+        # self.last_action = DEFAULT_ACTION
+        self.last_action = DEFAULT_ACTION
         self.buffer_size = 0.0
-        self.state = np.zeros((S_INFO, S_LEN))
+        self.state = np.zeros(S_DIM)
 
     def seed(self, num):
         np.random.seed(num)
@@ -42,23 +28,24 @@ class ABREnv:
     def reset(self):
         # self.net_env.reset_ptr()
         self.time_stamp = 0
-        self.last_bit_rate = DEFAULT_QUALITY
-        self.state = np.zeros((S_INFO, S_LEN))
+        self.last_action = DEFAULT_ACTION
+        self.state = np.zeros(S_DIM)
         self.buffer_size = 0.0
-        bit_rate = self.last_bit_rate
+        action = self.last_action
         (
             delay,
             sleep_time,
             self.buffer_size,
             rebuf,
             video_chunk_size,
-            next_video_chunk_sizes,
             end_of_video,
             video_chunk_remain,
-        ) = self.net_env.get_video_chunk(bit_rate)
+        ) = self.net_env.get_video_chunk(action)
+
         state = np.roll(self.state, -1, axis=1)
 
         # this should be S_INFO number of terms
+        # TODO reset bit_rate to action
         state[0, -1] = VIDEO_BIT_RATE[bit_rate] / float(
             np.max(VIDEO_BIT_RATE)
         )  # last quality
@@ -78,7 +65,8 @@ class ABREnv:
         return
 
     def step(self, action):
-        bit_rate = int(action)
+        # bit_rate = int(action) # remove, use the action instead
+
         # the action is from the last decision
         # this is to make the framework similar to the real
         (
@@ -87,10 +75,9 @@ class ABREnv:
             self.buffer_size,
             rebuf,
             video_chunk_size,
-            next_video_chunk_sizes,
             end_of_video,
             video_chunk_remain,
-        ) = self.net_env.get_video_chunk(bit_rate)
+        ) = self.net_env.get_video_chunk(action)
 
         self.time_stamp += delay  # in ms
         self.time_stamp += sleep_time  # in ms
@@ -100,11 +87,11 @@ class ABREnv:
             VIDEO_BIT_RATE[bit_rate] / M_IN_K
             - REBUF_PENALTY * rebuf
             - SMOOTH_PENALTY
-            * np.abs(VIDEO_BIT_RATE[bit_rate] - VIDEO_BIT_RATE[self.last_bit_rate])
+            * np.abs(VIDEO_BIT_RATE[bit_rate] - VIDEO_BIT_RATE[self.last_action])
             / M_IN_K
         )
 
-        self.last_bit_rate = bit_rate
+        self.last_action = bit_rate
         state = np.roll(self.state, -1, axis=1)
 
         # this should be S_INFO number of terms

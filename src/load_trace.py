@@ -1,8 +1,8 @@
 import os
 
 
-# COOKED_TRACE_FOLDER = './train/'
-COOKED_TRACE_FOLDER = "./SAM_processed_trace/"
+COOKED_TRACE_FOLDER = "./train/"
+# COOKED_TRACE_FOLDER = "./SAM_processed_trace/"
 
 
 def load_trace(cooked_trace_folder=COOKED_TRACE_FOLDER):

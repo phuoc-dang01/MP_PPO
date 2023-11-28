@@ -10,25 +10,10 @@ import load_trace
 import ppo2 as network
 import fixed_env as env
 
+from const import *
+
 # os.chdir("./src/")
 
-S_INFO = 6  # bit_rate, buffer_size, next_chunk_size, bandwidth_measurement(throughput and time), chunk_til_video_end
-S_LEN = 8  # take how many frames in the past
-A_DIM = 6
-ACTOR_LR_RATE = 0.0001
-CRITIC_LR_RATE = 0.001
-VIDEO_BIT_RATE = [300, 750, 1200, 1850, 2850, 4300]  # Kbps
-BUFFER_NORM_FACTOR = 10.0
-CHUNK_TIL_VIDEO_END_CAP = 48.0
-M_IN_K = 1000.0
-REBUF_PENALTY = 4.3  # 1 sec rebuffering -> 3 Mbps
-SMOOTH_PENALTY = 1
-DEFAULT_QUALITY = 1  # default video quality without agent
-RANDOM_SEED = 42
-RAND_RANGE = 1000
-LOG_FILE = "./test_results/log_sim_ppo"
-# TEST_TRACES = "./test/"
-TEST_TRACES = "./SAM_test_trace/"
 # log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
 NN_MODEL = sys.argv[1]
 # NN_MODEL = "./pretrain/nn_model_ep_151200.ckpt"
@@ -37,7 +22,7 @@ NN_MODEL = sys.argv[1]
 def main():
     np.random.seed(RANDOM_SEED)
 
-    assert len(VIDEO_BIT_RATE) == A_DIM
+    # assert len(VIDEO_BIT_RATE) == A_DIM
 
     all_cooked_time, all_cooked_bw, all_file_names = load_trace.load_trace(TEST_TRACES)
 

@@ -7,27 +7,14 @@ from env import ABREnv
 import ppo2 as network
 import tensorflow.compat.v1 as tf
 
+from const import *
+
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 os.chdir("./src/")
 
-S_DIM = [6, 8]
-A_DIM = 6
-ACTOR_LR_RATE = 1e-4
-NUM_AGENTS = 16
-TRAIN_SEQ_LEN = 1000  # take as a train batch
-TRAIN_EPOCH = 500000
-MODEL_SAVE_INTERVAL = 300
-RANDOM_SEED = 42
-SUMMARY_DIR = "./ppo"
-MODEL_DIR = "./models"
-# TRAIN_TRACES = "./train/"
-TRAIN_TRACES = "./SAM_processed_trace/"
-TEST_LOG_FOLDER = "./test_results/"
-LOG_FILE = SUMMARY_DIR + "/log"
-PPO_TRAINING_EPO = 5
 
 # create result directory
 if not os.path.exists(SUMMARY_DIR):
@@ -186,12 +173,12 @@ def agent(agent_id, net_params_queue, exp_queue):
 
                 # gumbel noise
                 noise = np.random.gumbel(size=len(action_prob))
-                bit_rate = np.argmax(np.log(action_prob) + noise)
+                _action = np.argmax(np.log(action_prob) + noise)
 
-                obs, rew, done, info = env.step(bit_rate)
+                obs, rew, done, info = env.step(_action)
 
                 action_vec = np.zeros(A_DIM)
-                action_vec[bit_rate] = 1
+                action_vec[_action] = 1
                 a_batch.append(action_vec)
                 r_batch.append(rew)
                 p_batch.append(action_prob)
