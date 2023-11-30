@@ -3,12 +3,14 @@ VIDEO_BIT_RATE = [300.0, 1850.0, 4300.0]  # Kbps
 BITRATE_LEVELS = 3
 
 
-S_INFO = 4  # bit_rate, buffer_size, bandwidth_measurement(throughput and time), chunk_til_video_end
+S_INFO = (
+    5  # last quality, buffer_size, last video chunks size, delay, chunk_til_video_end
+)
 S_LEN = 8  # take how many frames in the past
-S_DIM = [S_INFO, S_LEN]
+S_DIM = (S_INFO, S_LEN)
 A_DIM = (2 * BITRATE_LEVELS) ** 2
 
-NUM_AGENTS = 1
+NUM_AGENTS = 2
 ACTOR_LR_RATE = 0.0001
 CRITIC_LR_RATE = 0.001
 
@@ -92,5 +94,11 @@ LINK_RTT = 80  # millisec
 PACKET_SIZE = 1500  # bytes
 NOISE_LOW = 0.9
 NOISE_HIGH = 1.1
+
+FEATURE_NUM = 128
+ACTION_EPS = 1e-4
+GAMMA = 0.99
+# PPO2
+EPS = 0.2
 
 RAND_RANGE = 1000

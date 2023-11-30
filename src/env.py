@@ -4,6 +4,7 @@ import numpy as np
 import core as abrenv
 import load_trace
 
+from collections.abc import Iterable
 from const import *
 
 
@@ -25,6 +26,41 @@ class ABREnv:
     def seed(self, num):
         np.random.seed(num)
 
+    @staticmethod
+    def replace_last_n_elements(arr, row_index, new_elements):
+        # Check if new_elements is iterable (like a list or array), if not, make it a one-element list
+        if not isinstance(new_elements, Iterable) or isinstance(new_elements, str):
+            new_elements = [new_elements]
+        n = len(new_elements)
+
+        arr[row_index, -n:] = new_elements
+        return arr
+
+    @staticmethod
+    def get_last_video_chunk_size(video_chunk_size, delay):
+        return [float(_i) / float(delay) / M_IN_K for _i in video_chunk_size]
+
+    def get_new_state_from_action(
+        self, action, video_chunk_size, buffer, delay, video_chunk_remain
+    ):
+        state = self.state
+        # Get the action details
+        action_detail, _last_bit_rate = self.get_action_detail_bitrate(action)
+        _last_video_chunk_size = self.get_last_video_chunk_size(video_chunk_size, delay)
+        _last_video_chunk_remain = np.minimum(
+            video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP
+        ) / float(CHUNK_TIL_VIDEO_END_CAP)
+
+        # Add on new information to the state
+        state = self.replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
+        state = self.replace_last_n_elements(state, 0, buffer / BUFFER_NORM_FACTOR)  # 10 sec
+        state = self.replace_last_n_elements(state, 2, _last_video_chunk_size)  # kilo byte / ms
+        state = self.replace_last_n_elements(state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR)  # 10 sec
+        state = self.replace_last_n_elements(state, 4, _last_video_chunk_remain)  # 10 sec
+        
+        self.state = state
+        return self.state
+
     def reset(self):
         # self.net_env.reset_ptr()
         self.time_stamp = 0
@@ -42,31 +78,36 @@ class ABREnv:
             video_chunk_remain,
         ) = self.net_env.get_video_chunk(action)
 
-        state = np.roll(self.state, -1, axis=1)
-
-        # this should be S_INFO number of terms
-        # TODO reset bit_rate to action
-        state[0, -1] = VIDEO_BIT_RATE[bit_rate] / float(
-            np.max(VIDEO_BIT_RATE)
-        )  # last quality
-        state[1, -1] = self.buffer_size / BUFFER_NORM_FACTOR  # 10 sec
-        state[2, -1] = float(video_chunk_size) / float(delay) / M_IN_K  # kilo byte / ms
-        state[3, -1] = float(delay) / M_IN_K / BUFFER_NORM_FACTOR  # 10 sec
-        state[4, :A_DIM] = (
-            np.array(next_video_chunk_sizes) / M_IN_K / M_IN_K
-        )  # mega byte
-        state[5, -1] = np.minimum(video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP) / float(
-            CHUNK_TIL_VIDEO_END_CAP
+        # get the new state
+        state = self.get_new_state_from_action(
+            action, video_chunk_size, self.buffer_size, delay, video_chunk_remain
         )
-        self.state = state
+
         return state
 
     def render(self):
         return
 
-    def step(self, action):
-        # bit_rate = int(action) # remove, use the action instead
+    @staticmethod
+    def get_action_detail_bitrate(action):
+        # Get the action details
+        action_detail = ACTION_TABLE[action]
+        _last_bit_rate = [
+            VIDEO_BIT_RATE[_i] / float(np.max(VIDEO_BIT_RATE))
+            for _i in (action_detail[1], action_detail[3])
+        ]
+        return action_detail, _last_bit_rate
 
+    @staticmethod
+    def reward_bitrate(_last_bitrate):
+        return sum([np.log(_i + 1) for _i in _last_bitrate])
+
+    def penelty_smoothness(self, action, last_action):
+        _, bit_rate = self.get_action_detail_bitrate(action)
+        _, _last_bit_rate = self.get_action_detail_bitrate(last_action)
+        return sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)])
+
+    def step(self, action):
         # the action is from the last decision
         # this is to make the framework similar to the real
         (
@@ -82,37 +123,24 @@ class ABREnv:
         self.time_stamp += delay  # in ms
         self.time_stamp += sleep_time  # in ms
 
+        action_detail, _last_bit_rate = self.get_action_detail_bitrate(action)
+
         # reward is video quality - rebuffer penalty - smooth penalty
         reward = (
-            VIDEO_BIT_RATE[bit_rate] / M_IN_K
+            self.reward_bitrate(_last_bit_rate)
             - REBUF_PENALTY * rebuf
-            - SMOOTH_PENALTY
-            * np.abs(VIDEO_BIT_RATE[bit_rate] - VIDEO_BIT_RATE[self.last_action])
-            / M_IN_K
+            - SMOOTH_PENALTY * self.penelty_smoothness(action, self.last_action)
         )
 
-        self.last_action = bit_rate
-        state = np.roll(self.state, -1, axis=1)
+        self.last_action = action
 
-        # this should be S_INFO number of terms
-        state[0, -1] = VIDEO_BIT_RATE[bit_rate] / float(
-            np.max(VIDEO_BIT_RATE)
-        )  # last quality
-        state[1, -1] = self.buffer_size / BUFFER_NORM_FACTOR  # 10 sec
-        state[2, -1] = float(video_chunk_size) / float(delay) / M_IN_K  # kilo byte / ms
-        state[3, -1] = float(delay) / M_IN_K / BUFFER_NORM_FACTOR  # 10 sec
-        state[4, :A_DIM] = (
-            np.array(next_video_chunk_sizes) / M_IN_K / M_IN_K
-        )  # mega byte
-        state[5, -1] = np.minimum(video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP) / float(
-            CHUNK_TIL_VIDEO_END_CAP
+        # get the new state
+        state = self.get_new_state_from_action(
+            action, video_chunk_size, self.buffer_size, delay, video_chunk_remain
         )
-
-        self.state = state
-        # observation, reward, done, info = env.step(action)
         return (
             state,
             reward,
             end_of_video,
-            {"bitrate": VIDEO_BIT_RATE[bit_rate], "rebuffer": rebuf},
+            {"action": action, "rebuffer": rebuf},
         )

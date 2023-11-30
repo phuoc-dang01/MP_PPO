@@ -5,83 +5,78 @@ import os
 import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-import tflearn
 
-FEATURE_NUM = 128
-ACTION_EPS = 1e-4
-GAMMA = 0.99
-# PPO2
-EPS = 0.2
+import tflearn
+from const import *
+
+tf.disable_v2_behavior()
+
+
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow")
 
 
 class Network:
     def CreateNetwork(self, inputs):
-        with tf.variable_scope("actor"):
-            split_0 = tflearn.fully_connected(
-                inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
-            )
-            split_1 = tflearn.fully_connected(
-                inputs[:, 1:2, -1], FEATURE_NUM, activation="relu"
-            )
-            split_2 = tflearn.conv_1d(
-                inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu"
-            )
-            split_3 = tflearn.conv_1d(
-                inputs[:, 3:4, :], FEATURE_NUM, 1, activation="relu"
-            )
-            split_4 = tflearn.conv_1d(
-                inputs[:, 4:5, : self.a_dim], FEATURE_NUM, 1, activation="relu"
-            )
-            split_5 = tflearn.fully_connected(
-                inputs[:, 5:6, -1], FEATURE_NUM, activation="relu"
-            )
+        with tf.variable_scope("actor_network", reuse=tf.AUTO_REUSE):
+            actor_output = self._create_actor(inputs)
 
-            split_2_flat = tflearn.flatten(split_2)
-            split_3_flat = tflearn.flatten(split_3)
-            split_4_flat = tflearn.flatten(split_4)
+        with tf.variable_scope("critic_network", reuse=tf.AUTO_REUSE):
+            critic_output = self._create_critic(inputs)
 
-            merge_net = tflearn.merge(
-                [split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5],
-                "concat",
-            )
+        return actor_output, critic_output
 
-            pi_net = tflearn.fully_connected(merge_net, FEATURE_NUM, activation="relu")
-            pi = tflearn.fully_connected(pi_net, self.a_dim, activation="softmax")
+    def _create_actor(self, inputs):
+        split_0 = tflearn.fully_connected(
+            inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
+        )
+        split_1 = tflearn.conv_1d(inputs[:, 1:2, :], FEATURE_NUM, 1, activation="relu")
+        split_2 = tflearn.conv_1d(inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu")
+        split_3 = tflearn.fully_connected(
+            inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+        )
+        split_4 = tflearn.fully_connected(
+            inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+        )
 
-        with tf.variable_scope("critic"):
-            split_0 = tflearn.fully_connected(
-                inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
-            )
-            split_1 = tflearn.fully_connected(
-                inputs[:, 1:2, -1], FEATURE_NUM, activation="relu"
-            )
-            split_2 = tflearn.conv_1d(
-                inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu"
-            )
-            split_3 = tflearn.conv_1d(
-                inputs[:, 3:4, :], FEATURE_NUM, 1, activation="relu"
-            )
-            split_4 = tflearn.conv_1d(
-                inputs[:, 4:5, : self.a_dim], FEATURE_NUM, 1, activation="relu"
-            )
-            split_5 = tflearn.fully_connected(
-                inputs[:, 5:6, -1], FEATURE_NUM, activation="relu"
-            )
+        split_1_flat = tflearn.flatten(split_1)
+        split_2_flat = tflearn.flatten(split_2)
 
-            split_2_flat = tflearn.flatten(split_2)
-            split_3_flat = tflearn.flatten(split_3)
-            split_4_flat = tflearn.flatten(split_4)
+        merge_net = tflearn.merge(
+            [split_0, split_1_flat, split_2_flat, split_3, split_4],
+            "concat",
+        )
 
-            merge_net = tflearn.merge(
-                [split_0, split_1, split_2_flat, split_3_flat, split_4_flat, split_5],
-                "concat",
-            )
+        pi_net = tflearn.fully_connected(merge_net, FEATURE_NUM, activation="relu")
+        pi = tflearn.fully_connected(pi_net, self.a_dim, activation="softmax")
+        return pi
 
-            value_net = tflearn.fully_connected(
-                merge_net, FEATURE_NUM, activation="relu"
-            )
-            value = tflearn.fully_connected(value_net, 1, activation="linear")
-            return pi, value
+    def _create_critic(self, inputs):
+        # with tf.variable_scope("actor", reuse=tf.AUTO_REUSE):
+        split_0 = tflearn.fully_connected(
+            inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
+        )
+        split_1 = tflearn.conv_1d(inputs[:, 1:2, :], FEATURE_NUM, 1, activation="relu")
+        split_2 = tflearn.conv_1d(inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu")
+        split_3 = tflearn.fully_connected(
+            inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+        )
+        split_4 = tflearn.fully_connected(
+            inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+        )
+
+        split_1_flat = tflearn.flatten(split_1)
+        split_2_flat = tflearn.flatten(split_2)
+
+        merge_net = tflearn.merge(
+            [split_0, split_1_flat, split_2_flat, split_3, split_4],
+            "concat",
+        )
+
+        value_net = tflearn.fully_connected(merge_net, FEATURE_NUM, activation="relu")
+        value = tflearn.fully_connected(value_net, 1, activation="linear")
+        return value
 
     def get_network_params(self):
         return self.sess.run(self.network_params)
@@ -136,10 +131,10 @@ class Network:
 
         # Get all network parameters
         self.network_params = tf.get_collection(
-            tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor"
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_network"
         )
         self.network_params += tf.get_collection(
-            tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic"
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network"
         )
 
         # Set all network parameters
@@ -152,12 +147,27 @@ class Network:
         for idx, param in enumerate(self.input_network_params):
             self.set_network_params_op.append(self.network_params[idx].assign(param))
 
+        # with tf.variable_scope("actor_optimizer", reuse=tf.AUTO_REUSE):
+        #     self.policy_loss = -tf.reduce_sum(
+        #         self.dual_loss
+        #     ) - self.entropy_weight * tf.reduce_sum(self.entropy)
+        #     self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
+        #         self.policy_loss
+        #     )
+
+        # with tf.variable_scope("critic_optimizer", reuse=tf.AUTO_REUSE):
+        #     self.val_loss = tflearn.mean_square(self.val, self.R)
+        #     self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
+        #         self.val_loss
+        #     )
+
         self.policy_loss = -tf.reduce_sum(
             self.dual_loss
         ) - self.entropy_weight * tf.reduce_sum(self.entropy)
         self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
             self.policy_loss
         )
+
         self.val_loss = tflearn.mean_square(self.val, self.R)
         self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
             self.val_loss

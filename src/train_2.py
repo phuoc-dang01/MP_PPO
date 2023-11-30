@@ -6,8 +6,14 @@ import sys
 from env import ABREnv
 import ppo2 as network
 import tensorflow.compat.v1 as tf
+import test as test_ppo
 
 from const import *
+
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow")
+
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -31,7 +37,8 @@ def testing(epoch, nn_model, log_file):
     if not os.path.exists(TEST_LOG_FOLDER):
         os.makedirs(TEST_LOG_FOLDER)
     # run test script
-    os.system("python test.py " + nn_model)
+    # os.system("python test.py " + nn_model)
+    test_ppo.main(nn_model)
 
     # append test performance to the log
     rewards, entropies = [], []

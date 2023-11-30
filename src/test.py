@@ -1,10 +1,14 @@
 import os
 import sys
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
 import tensorflow.compat.v1 as tf
 import load_trace
+
+# add queuing delay into halo
+import core as abrenv
+from collections.abc import Iterable
 
 # import a2c as network
 import ppo2 as network
@@ -12,21 +16,86 @@ import fixed_env as env
 
 from const import *
 
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow")
+
+
+# tf.disable_v2_behavior()
+
 # os.chdir("./src/")
 
 # log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
-NN_MODEL = sys.argv[1]
+# NN_MODEL = sys.argv[1]
 # NN_MODEL = "./pretrain/nn_model_ep_151200.ckpt"
 
 
-def main():
+def get_action_detail_bitrate(action):
+    # Get the action details
+    action_detail = ACTION_TABLE[action]
+    _last_bit_rate = [
+        VIDEO_BIT_RATE[_i] / float(np.max(VIDEO_BIT_RATE))
+        for _i in (action_detail[1], action_detail[3])
+    ]
+    return action_detail, _last_bit_rate
+
+
+def reward_bitrate(_last_bitrate):
+    return sum([np.log(_i + 1) for _i in _last_bitrate])
+
+
+def penelty_smoothness(action, last_action):
+    _, bit_rate = get_action_detail_bitrate(action)
+    _, _last_bit_rate = get_action_detail_bitrate(last_action)
+    return sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)])
+
+
+def get_last_video_chunk_size(video_chunk_size, delay):
+    return [float(_i) / float(delay) / M_IN_K for _i in video_chunk_size]
+
+
+def replace_last_n_elements(arr, row_index, new_elements):
+    # Check if new_elements is iterable (like a list or array), if not, make it a one-element list
+    if not isinstance(new_elements, Iterable) or isinstance(new_elements, str):
+        new_elements = [new_elements]
+    n = len(new_elements)
+
+    arr[row_index, -n:] = new_elements
+    return arr
+
+
+def get_new_state_from_action(
+    input_state, action, buffer, video_chunk_size, delay, video_chunk_remain
+):
+    state = input_state
+    # Get the action details
+    action_detail, _last_bit_rate = get_action_detail_bitrate(action)
+
+    _last_video_chunk_size = get_last_video_chunk_size(video_chunk_size, delay)
+    _last_video_chunk_remain = np.minimum(
+        video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP
+    ) / float(CHUNK_TIL_VIDEO_END_CAP)
+
+    # Add on new information to the state
+    state = replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
+    state = replace_last_n_elements(state, 0, buffer / BUFFER_NORM_FACTOR)  # 10 sec
+    state = replace_last_n_elements(state, 2, _last_video_chunk_size)  # kilo byte / ms
+    state = replace_last_n_elements(
+        state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
+    )  # 10 sec
+    state = replace_last_n_elements(state, 4, _last_video_chunk_remain)  # 10 sec
+
+    return state
+
+
+def main(NN_MODEL=None):
     np.random.seed(RANDOM_SEED)
 
     # assert len(VIDEO_BIT_RATE) == A_DIM
 
     all_cooked_time, all_cooked_bw, all_file_names = load_trace.load_trace(TEST_TRACES)
 
-    net_env = env.Environment(
+    net_env = abrenv.Environment(
         all_cooked_time=all_cooked_time, all_cooked_bw=all_cooked_bw
     )
 
@@ -35,10 +104,7 @@ def main():
 
     with tf.Session() as sess:
         actor = network.Network(
-            sess,
-            state_dim=[S_INFO, S_LEN],
-            action_dim=A_DIM,
-            learning_rate=ACTOR_LR_RATE,
+            sess, state_dim=S_DIM, action_dim=A_DIM, learning_rate=ACTOR_LR_RATE
         )
 
         sess.run(tf.global_variables_initializer())
@@ -51,11 +117,11 @@ def main():
 
         time_stamp = 0
 
-        last_bit_rate = DEFAULT_QUALITY
-        bit_rate = DEFAULT_QUALITY
+        last_action = DEFAULT_ACTION
+        action = DEFAULT_ACTION
 
         action_vec = np.zeros(A_DIM)
-        action_vec[bit_rate] = 1
+        action_vec[action] = DEFAULT_ACTION
 
         s_batch = [np.zeros((S_INFO, S_LEN))]
         a_batch = [action_vec]
@@ -73,32 +139,31 @@ def main():
                 buffer_size,
                 rebuf,
                 video_chunk_size,
-                next_video_chunk_sizes,
                 end_of_video,
                 video_chunk_remain,
-            ) = net_env.get_video_chunk(bit_rate)
+            ) = net_env.get_video_chunk(action)
 
             time_stamp += delay  # in ms
             time_stamp += sleep_time  # in ms
 
+            action_detail, _last_bit_rate = get_action_detail_bitrate(action)
+
             # reward is video quality - rebuffer penalty - smoothness
             reward = (
-                VIDEO_BIT_RATE[bit_rate] / M_IN_K
+                reward_bitrate(_last_bit_rate)
                 - REBUF_PENALTY * rebuf
-                - SMOOTH_PENALTY
-                * np.abs(VIDEO_BIT_RATE[bit_rate] - VIDEO_BIT_RATE[last_bit_rate])
-                / M_IN_K
+                - SMOOTH_PENALTY * penelty_smoothness(action, last_action)
             )
 
             r_batch.append(reward)
 
-            last_bit_rate = bit_rate
+            last_action = action
 
             # log time_stamp, bit_rate, buffer_size, reward
             log_file.write(
                 str(time_stamp / M_IN_K)
                 + "\t"
-                + str(VIDEO_BIT_RATE[bit_rate])
+                + str(action)
                 + "\t"
                 + str(buffer_size)
                 + "\t"
@@ -117,28 +182,14 @@ def main():
 
             # retrieve previous state
             if len(s_batch) == 0:
-                state = [np.zeros((S_INFO, S_LEN))]
+                state = np.zeros(S_DIM)
             else:
                 state = np.array(s_batch[-1], copy=True)
 
-            # dequeue history record
-            state = np.roll(state, -1, axis=1)
-
-            # this should be S_INFO number of terms
-            state[0, -1] = VIDEO_BIT_RATE[bit_rate] / float(
-                np.max(VIDEO_BIT_RATE)
-            )  # last quality
-            state[1, -1] = buffer_size / BUFFER_NORM_FACTOR  # 10 sec
-            state[2, -1] = (
-                float(video_chunk_size) / float(delay) / M_IN_K
-            )  # kilo byte / ms
-            state[3, -1] = float(delay) / M_IN_K / BUFFER_NORM_FACTOR  # 10 sec
-            state[4, :A_DIM] = (
-                np.array(next_video_chunk_sizes) / M_IN_K / M_IN_K
-            )  # mega byte
-            state[5, -1] = np.minimum(
-                video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP
-            ) / float(CHUNK_TIL_VIDEO_END_CAP)
+            # get the new state
+            state = get_new_state_from_action(
+                state, action, video_chunk_size, buffer_size, delay, video_chunk_remain
+            )
 
             action_prob = actor.predict(np.reshape(state, (1, S_INFO, S_LEN)))
             noise = np.random.gumbel(size=len(action_prob))
@@ -153,14 +204,14 @@ def main():
                 log_file.close()
 
                 last_bit_rate = DEFAULT_QUALITY
-                bit_rate = DEFAULT_QUALITY  # use the default action here
+                action = DEFAULT_ACTION  # use the default action here
 
                 del s_batch[:]
                 del a_batch[:]
                 del r_batch[:]
 
                 action_vec = np.zeros(A_DIM)
-                action_vec[bit_rate] = 1
+                action_vec[action] = DEFAULT_ACTION
 
                 s_batch.append(np.zeros((S_INFO, S_LEN)))
                 a_batch.append(action_vec)

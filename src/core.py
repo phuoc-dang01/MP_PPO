@@ -6,9 +6,9 @@ from const import *
 
 class Environment:
     def get_random_coocked_time_bw(self):
-        trace_idx = np.random.randint(len(self.all_cooked_time))
-        cooked_time = self.all_cooked_time[trace_idx]
-        cooked_bw = self.all_cooked_bw[trace_idx]
+        self.trace_idx = np.random.randint(len(self.all_cooked_time))
+        cooked_time = self.all_cooked_time[self.trace_idx]
+        cooked_bw = self.all_cooked_bw[self.trace_idx]
         return cooked_time, cooked_bw
 
     def get_double_channels_cooked_time_bw(self):
@@ -36,11 +36,6 @@ class Environment:
 
         self.video_chunk_counter = 0
         self.buffer_size = 0
-
-        # pick a random trace file
-        # self.trace_idx = np.random.randint(len(self.all_cooked_time))
-        # self.cooked_time = self.all_cooked_time[self.trace_idx]
-        # self.cooked_bw = self.all_cooked_bw[self.trace_idx]
 
         self.cooked_time, self.cooked_bw = self.get_double_channels_cooked_time_bw()
 
@@ -197,7 +192,7 @@ class Environment:
             self.mahimahi_ptr = np.random.randint(1, self.cooked_bw.shape[1])
             self.last_mahimahi_time = self.cooked_time[self.mahimahi_ptr - 1]
 
-        # Get the next video chunk size
+        # Get the next video chunk size - NOT USE FOR NOW
         # next_video_chunk_sizes = [
         #     self.video_size[i][self.video_chunk_counter] for i in range(BITRATE_LEVELS)
         # ]
