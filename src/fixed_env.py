@@ -41,7 +41,7 @@ class Environment:
 
         # randomize the start point of the trace
         # note: trace file starts with time 0
-        self.mahimahi_ptr = np.random.randint(1, self.cooked_bw.shape[1])
+        self.mahimahi_ptr = 1
         self.last_mahimahi_time = self.cooked_time[self.mahimahi_ptr - 1]
 
         self.video_size = {}  # in bytes
@@ -189,7 +189,7 @@ class Environment:
             self.video_chunk_counter = 0
 
             self.cooked_time, self.cooked_bw = self.get_double_channels_cooked_time_bw()
-            self.mahimahi_ptr = np.random.randint(1, self.cooked_bw.shape[1])
+            self.mahimahi_ptr = 1
             self.last_mahimahi_time = self.cooked_time[self.mahimahi_ptr - 1]
 
         # Get the next video chunk size - NOT USE FOR NOW
@@ -237,9 +237,6 @@ class Environment:
         return self.global_processing_tracked_mahi(track_mahi)
 
     def get_video_chunk(self, action):
-        # assert quality >= 0
-        # assert quality < BITRATE_LEVELS
-
         _p1, _q1, _p2, _q2 = ACTION_TABLE[
             action
         ]  # path 1, quality 1, path 2, quality 2
@@ -257,4 +254,9 @@ class Environment:
 
         # all the information is return here
         infor = self.sending_2_chunk(_p1, video_chunk_size_1, _p2, video_chunk_size_2)
+
+        next_video_chunk_sizes = []
+        for i in range(BITRATE_LEVELS):
+            next_video_chunk_sizes.append(self.video_size[i][self.video_chunk_counter])
+
         return infor

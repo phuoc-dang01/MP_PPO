@@ -2,7 +2,6 @@
 VIDEO_BIT_RATE = [300.0, 1850.0, 4300.0]  # Kbps
 BITRATE_LEVELS = 3
 
-
 S_INFO = (
     5  # last quality, buffer_size, last video chunks size, delay, chunk_til_video_end
 )
@@ -10,7 +9,7 @@ S_LEN = 8  # take how many frames in the past
 S_DIM = (S_INFO, S_LEN)
 A_DIM = (2 * BITRATE_LEVELS) ** 2
 
-NUM_AGENTS = 2
+NUM_AGENTS = 16
 ACTOR_LR_RATE = 0.0001
 CRITIC_LR_RATE = 0.001
 
@@ -69,7 +68,6 @@ TRAIN_SEQ_LEN = 1000  # take as a train batch
 TRAIN_EPOCH = 500000
 MODEL_SAVE_INTERVAL = 300
 
-LOG_FILE = "./test_results/log_sim_ppo"
 TEST_TRACES = "./test/"
 # TEST_TRACES = "./SAM_test_trace/"
 SUMMARY_DIR = "./ppo"
@@ -77,8 +75,13 @@ MODEL_DIR = "./models"
 TRAIN_TRACES = "./train/"
 # TRAIN_TRACES = "./SAM_processed_trace/"
 TEST_LOG_FOLDER = "./test_results/"
-LOG_FILE = SUMMARY_DIR + "/log"
+
 PPO_TRAINING_EPO = 5
+
+TEST_LOG_FILE = "./test_results/log_sim_ppo"
+TRAIN_LOG_FILE = SUMMARY_DIR + "/log"
+
+
 VIDEO_SIZE_FILE = "./envivio/video_size_"
 
 MILLISECONDS_IN_SECOND = 1000.0

@@ -46,6 +46,7 @@ class ABREnv:
         state = self.state
         # Get the action details
         action_detail, _last_bit_rate = self.get_action_detail_bitrate(action)
+
         _last_video_chunk_size = self.get_last_video_chunk_size(video_chunk_size, delay)
         _last_video_chunk_remain = np.minimum(
             video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP
@@ -53,11 +54,19 @@ class ABREnv:
 
         # Add on new information to the state
         state = self.replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
-        state = self.replace_last_n_elements(state, 0, buffer / BUFFER_NORM_FACTOR)  # 10 sec
-        state = self.replace_last_n_elements(state, 2, _last_video_chunk_size)  # kilo byte / ms
-        state = self.replace_last_n_elements(state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR)  # 10 sec
-        state = self.replace_last_n_elements(state, 4, _last_video_chunk_remain)  # 10 sec
-        
+        state = self.replace_last_n_elements(
+            state, 0, buffer / BUFFER_NORM_FACTOR
+        )  # 10 sec
+        state = self.replace_last_n_elements(
+            state, 2, _last_video_chunk_size
+        )  # kilo byte / ms
+        state = self.replace_last_n_elements(
+            state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
+        )  # 10 sec
+        state = self.replace_last_n_elements(
+            state, 4, _last_video_chunk_remain
+        )  # 10 sec
+
         self.state = state
         return self.state
 
@@ -100,12 +109,12 @@ class ABREnv:
 
     @staticmethod
     def reward_bitrate(_last_bitrate):
-        return sum([np.log(_i + 1) for _i in _last_bitrate])
+        return sum([np.log(_i) for _i in _last_bitrate])
 
     def penelty_smoothness(self, action, last_action):
         _, bit_rate = self.get_action_detail_bitrate(action)
         _, _last_bit_rate = self.get_action_detail_bitrate(last_action)
-        return sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)])
+        return abs(sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)]))
 
     def step(self, action):
         # the action is from the last decision

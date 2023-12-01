@@ -28,7 +28,6 @@ if not os.path.exists(SUMMARY_DIR):
 
 NN_MODEL = None
 
-
 def testing(epoch, nn_model, log_file):
     # clean up the test results folder
     os.system("rm -r " + TEST_LOG_FOLDER)
@@ -37,8 +36,8 @@ def testing(epoch, nn_model, log_file):
     if not os.path.exists(TEST_LOG_FOLDER):
         os.makedirs(TEST_LOG_FOLDER)
     # run test script
-    # os.system("python test.py " + nn_model)
-    test_ppo.main(nn_model)
+    os.system("python test.py " + nn_model)
+    # test_ppo.main(nn_model)
 
     # append test performance to the log
     rewards, entropies = [], []
@@ -94,7 +93,7 @@ def central_agent(net_params_queues, exp_queues):
     )
 
     with tf.Session(config=tf_config) as sess, open(
-        LOG_FILE + "_test.txt", "w"
+        TRAIN_LOG_FILE + "_test.txt", "w"
     ) as test_log_file:
         summary_ops, summary_vars = build_summaries()
 

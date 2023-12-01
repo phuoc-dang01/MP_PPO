@@ -7,7 +7,6 @@ import tensorflow.compat.v1 as tf
 import load_trace
 
 # add queuing delay into halo
-import core as abrenv
 from collections.abc import Iterable
 
 # import a2c as network
@@ -39,20 +38,16 @@ def get_action_detail_bitrate(action):
     ]
     return action_detail, _last_bit_rate
 
-
 def reward_bitrate(_last_bitrate):
-    return sum([np.log(_i + 1) for _i in _last_bitrate])
-
+    return sum([np.log(_i) for _i in _last_bitrate])
 
 def penelty_smoothness(action, last_action):
     _, bit_rate = get_action_detail_bitrate(action)
     _, _last_bit_rate = get_action_detail_bitrate(last_action)
-    return sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)])
-
+    return abs(sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)]))
 
 def get_last_video_chunk_size(video_chunk_size, delay):
     return [float(_i) / float(delay) / M_IN_K for _i in video_chunk_size]
-
 
 def replace_last_n_elements(arr, row_index, new_elements):
     # Check if new_elements is iterable (like a list or array), if not, make it a one-element list
@@ -62,7 +57,6 @@ def replace_last_n_elements(arr, row_index, new_elements):
 
     arr[row_index, -n:] = new_elements
     return arr
-
 
 def get_new_state_from_action(
     input_state, action, buffer, video_chunk_size, delay, video_chunk_remain
@@ -87,19 +81,19 @@ def get_new_state_from_action(
 
     return state
 
-
-def main(NN_MODEL=None):
+def main():
+    NN_MODEL = sys.argv[1]
     np.random.seed(RANDOM_SEED)
 
     # assert len(VIDEO_BIT_RATE) == A_DIM
 
     all_cooked_time, all_cooked_bw, all_file_names = load_trace.load_trace(TEST_TRACES)
 
-    net_env = abrenv.Environment(
+    net_env = env.Environment(
         all_cooked_time=all_cooked_time, all_cooked_bw=all_cooked_bw
     )
 
-    log_path = LOG_FILE + "_" + all_file_names[net_env.trace_idx]
+    log_path = TEST_LOG_FILE + "_" + all_file_names[net_env.trace_idx]
     log_file = open(log_path, "w")
 
     with tf.Session() as sess:
@@ -123,7 +117,7 @@ def main(NN_MODEL=None):
         action_vec = np.zeros(A_DIM)
         action_vec[action] = DEFAULT_ACTION
 
-        s_batch = [np.zeros((S_INFO, S_LEN))]
+        s_batch = [np.zeros(S_DIM)]
         a_batch = [action_vec]
         r_batch = []
         entropy_record = []
@@ -188,7 +182,7 @@ def main(NN_MODEL=None):
 
             # get the new state
             state = get_new_state_from_action(
-                state, action, video_chunk_size, buffer_size, delay, video_chunk_remain
+                state, action, buffer_size, video_chunk_size, delay, video_chunk_remain
             )
 
             action_prob = actor.predict(np.reshape(state, (1, S_INFO, S_LEN)))
@@ -211,9 +205,9 @@ def main(NN_MODEL=None):
                 del r_batch[:]
 
                 action_vec = np.zeros(A_DIM)
-                action_vec[action] = DEFAULT_ACTION
+                action_vec[action] = 1
 
-                s_batch.append(np.zeros((S_INFO, S_LEN)))
+                s_batch.append(np.zeros(S_DIM))
                 a_batch.append(action_vec)
                 # print(np.mean(entropy_record))
                 entropy_record = []
@@ -223,7 +217,7 @@ def main(NN_MODEL=None):
                 if video_count >= len(all_file_names):
                     break
 
-                log_path = LOG_FILE + "_" + all_file_names[net_env.trace_idx]
+                log_path = TEST_LOG_FILE + "_" + all_file_names[net_env.trace_idx]
                 log_file = open(log_path, "w")
 
 

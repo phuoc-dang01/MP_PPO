@@ -41,7 +41,7 @@ class Environment:
 
         # randomize the start point of the trace
         # note: trace file starts with time 0
-        self.mahimahi_ptr = np.random.randint(1, self.cooked_bw.shape[1])
+        self.mahimahi_ptr = np.random.randint(1, len(self.cooked_bw[0]) - 1)
         self.last_mahimahi_time = self.cooked_time[self.mahimahi_ptr - 1]
 
         self.video_size = {}  # in bytes
@@ -89,6 +89,8 @@ class Environment:
 
             if _mahimahi_ptr >= len(cooked_b):
                 _over_mahimahi_ptr_flag = True
+                _mahimahi_ptr = 1
+                _last_mahimahi_time = 0
                 # loop back in the beginning
                 # note: trace file starts with time 0
 
@@ -121,6 +123,11 @@ class Environment:
             self.buffer_size -= sleep_time
 
             while True:
+                if _mahimahi_ptr >= len(cooked_time):
+                    _over_mahimahi_ptr_flag = True
+                    _mahimahi_ptr = 1
+                    _last_mahimahi_time = 0
+
                 duration = cooked_time[_mahimahi_ptr] - _last_mahimahi_time
                 if duration > sleep_time / MILLISECONDS_IN_SECOND:
                     _last_mahimahi_time += sleep_time / MILLISECONDS_IN_SECOND
@@ -133,6 +140,8 @@ class Environment:
                     # loop back in the beginning
                     # note: trace file starts with time 0
                     _over_mahimahi_ptr_flag = True
+                    self.mahimahi_ptr = 1
+                    self.last_mahimahi_time = 0
 
         # Workting with the buffer
         return_buffer_size = self.buffer_size
@@ -237,9 +246,6 @@ class Environment:
         return self.global_processing_tracked_mahi(track_mahi)
 
     def get_video_chunk(self, action):
-        # assert quality >= 0
-        # assert quality < BITRATE_LEVELS
-
         _p1, _q1, _p2, _q2 = ACTION_TABLE[
             action
         ]  # path 1, quality 1, path 2, quality 2

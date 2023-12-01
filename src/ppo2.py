@@ -1,23 +1,57 @@
-import math
 import numpy as np
 import tensorflow.compat.v1 as tf
-import os
-import time
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 import tflearn
 from const import *
 
 tf.disable_v2_behavior()
 
 
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow")
-
-
 class Network:
+    def __init__(self, sess, state_dim, action_dim, learning_rate):
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.lr_rate = learning_rate
+        self.sess = sess
+        self._entropy_weight = np.log(self.a_dim)
+        self.H_target = 0.1
+
+        self._setup_placeholders()
+
+        # Create Networks
+        self.pi, self.val = self.CreateNetwork(inputs=self.inputs)
+        self.real_out = tf.clip_by_value(self.pi, ACTION_EPS, 1.0 - ACTION_EPS)
+
+        # Entropy calculation
+        self.entropy = -tf.reduce_sum(
+            tf.multiply(self.real_out, tf.log(self.real_out)),
+            reduction_indices=1,
+            keepdims=True,
+        )
+
+        # Advantage calculation
+        self.adv = tf.stop_gradient(self.R - self.val)
+        self.ppo2loss = self.calculate_ppo_loss()
+
+        self.dual_loss = tf.where(
+            tf.less(self.adv, 0.0),
+            tf.maximum(self.ppo2loss, 3.0 * self.adv),
+            self.ppo2loss,
+        )
+
+        # Policy and Value Loss
+        self.setup_policy_optimizer()
+        self.setup_value_optimizer()
+
+        # Set all network parameters
+        self.setup_network_params()
+
+    def _setup_placeholders(self):
+        self.R = tf.placeholder(tf.float32, [None, 1])
+        self.inputs = tf.placeholder(tf.float32, [None, self.s_dim[0], self.s_dim[1]])
+        self.old_pi = tf.placeholder(tf.float32, [None, self.a_dim])
+        self.acts = tf.placeholder(tf.float32, [None, self.a_dim])
+        self.entropy_weight = tf.placeholder(tf.float32)
+
     def CreateNetwork(self, inputs):
         with tf.variable_scope("actor_network", reuse=tf.AUTO_REUSE):
             actor_output = self._create_actor(inputs)
@@ -31,8 +65,20 @@ class Network:
         split_0 = tflearn.fully_connected(
             inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
         )
-        split_1 = tflearn.conv_1d(inputs[:, 1:2, :], FEATURE_NUM, 1, activation="relu")
-        split_2 = tflearn.conv_1d(inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu")
+        split_1 = tflearn.conv_1d(
+            inputs[:, 1:2, :],
+            FEATURE_NUM,
+            filter_size=4,
+            strides=1,
+            activation="relu",
+        )
+        split_2 = tflearn.conv_1d(
+            inputs[:, 2:3, :],
+            FEATURE_NUM,
+            filter_size=4,
+            strides=1,
+            activation="relu",
+        )
         split_3 = tflearn.fully_connected(
             inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
         )
@@ -53,12 +99,23 @@ class Network:
         return pi
 
     def _create_critic(self, inputs):
-        # with tf.variable_scope("actor", reuse=tf.AUTO_REUSE):
         split_0 = tflearn.fully_connected(
             inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
         )
-        split_1 = tflearn.conv_1d(inputs[:, 1:2, :], FEATURE_NUM, 1, activation="relu")
-        split_2 = tflearn.conv_1d(inputs[:, 2:3, :], FEATURE_NUM, 1, activation="relu")
+        split_1 = tflearn.conv_1d(
+            inputs[:, 1:2, :],
+            FEATURE_NUM,
+            filter_size=4,
+            strides=1,
+            activation="relu",
+        )
+        split_2 = tflearn.conv_1d(
+            inputs[:, 2:3, :],
+            FEATURE_NUM,
+            filter_size=4,
+            strides=1,
+            activation="relu",
+        )
         split_3 = tflearn.fully_connected(
             inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
         )
@@ -90,88 +147,131 @@ class Network:
         )
 
     def r(self, pi_new, pi_old, acts):
-        return tf.reduce_sum(
-            tf.multiply(pi_new, acts), reduction_indices=1, keepdims=True
-        ) / tf.reduce_sum(tf.multiply(pi_old, acts), reduction_indices=1, keepdims=True)
+        return tf.reduce_sum(tf.multiply(pi_new, acts), reduction_indices=1, keepdims=True
+) / tf.reduce_sum(tf.multiply(pi_old, acts), reduction_indices=1, keepdims=True)
 
-    def __init__(self, sess, state_dim, action_dim, learning_rate):
-        self.s_dim = state_dim
-        self.a_dim = action_dim
-        self.lr_rate = learning_rate
-        self.sess = sess
-        self._entropy_weight = np.log(self.a_dim)
-        self.H_target = 0.1
-
-        self.R = tf.placeholder(tf.float32, [None, 1])
-        self.inputs = tf.placeholder(tf.float32, [None, self.s_dim[0], self.s_dim[1]])
-        self.old_pi = tf.placeholder(tf.float32, [None, self.a_dim])
-        self.acts = tf.placeholder(tf.float32, [None, self.a_dim])
-        self.entropy_weight = tf.placeholder(tf.float32)
-        self.pi, self.val = self.CreateNetwork(inputs=self.inputs)
-        self.real_out = tf.clip_by_value(self.pi, ACTION_EPS, 1.0 - ACTION_EPS)
-
-        self.entropy = -tf.reduce_sum(
-            tf.multiply(self.real_out, tf.log(self.real_out)),
-            reduction_indices=1,
-            keepdims=True,
+    def calculate_ppo_loss(self):
+        ratio = self.r(self.real_out, self.old_pi, self.acts)
+        surr1 = ratio * self.adv
+        surr2 = tf.clip_by_value(ratio, 1 - EPS, 1 + EPS) * self.adv
+        ppo2loss = tf.minimum(surr1, surr2)
+        return tf.where(
+            tf.less(self.adv, 0.0), tf.maximum(ppo2loss, 3.0 * self.adv), ppo2loss
         )
-        self.adv = tf.stop_gradient(self.R - self.val)
-        self.ppo2loss = tf.minimum(
-            self.r(self.real_out, self.old_pi, self.acts) * self.adv,
-            tf.clip_by_value(
-                self.r(self.real_out, self.old_pi, self.acts), 1 - EPS, 1 + EPS
+
+    def setup_policy_optimizer(self):
+        with tf.variable_scope("actor_optimizer", reuse=tf.AUTO_REUSE):
+            self.policy_loss = -tf.reduce_sum(
+                self.dual_loss
+            ) - self.entropy_weight * tf.reduce_sum(self.entropy)
+            actor_vars = tf.get_collection(
+                tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_network"
             )
-            * self.adv,
-        )
-        self.dual_loss = tf.where(
-            tf.less(self.adv, 0.0),
-            tf.maximum(self.ppo2loss, 3.0 * self.adv),
-            self.ppo2loss,
-        )
+            self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
+                self.policy_loss, var_list=actor_vars
+            )
 
-        # Get all network parameters
+    def setup_value_optimizer(self):
+        with tf.variable_scope("critic_optimizer", reuse=tf.AUTO_REUSE):
+            self.val_loss = tflearn.mean_square(self.val, self.R)
+            critic_vars = tf.get_collection(
+                tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network"
+            )
+            self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
+                self.val_loss, var_list=critic_vars
+            )
+
+    def setup_network_params(self):
         self.network_params = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_network"
-        )
-        self.network_params += tf.get_collection(
-            tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network"
-        )
+        ) + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network")
+        self.input_network_params = [
+            tf.placeholder(tf.float32, shape=param.get_shape())
+            for param in self.network_params
+        ]
+        self.set_network_params_op = [
+            param.assign(value)
+            for param, value in zip(self.network_params, self.input_network_params)
+        ]
 
-        # Set all network parameters
-        self.input_network_params = []
-        for param in self.network_params:
-            self.input_network_params.append(
-                tf.placeholder(tf.float32, shape=param.get_shape())
-            )
-        self.set_network_params_op = []
-        for idx, param in enumerate(self.input_network_params):
-            self.set_network_params_op.append(self.network_params[idx].assign(param))
+    # def __init__(self, sess, state_dim, action_dim, learning_rate):
+    #     self.s_dim = state_dim
+    #     self.a_dim = action_dim
+    #     self.lr_rate = learning_rate
+    #     self.sess = sess
+    #     self._entropy_weight = np.log(self.a_dim)
+    #     self.H_target = 0.1
 
-        # with tf.variable_scope("actor_optimizer", reuse=tf.AUTO_REUSE):
-        #     self.policy_loss = -tf.reduce_sum(
-        #         self.dual_loss
-        #     ) - self.entropy_weight * tf.reduce_sum(self.entropy)
-        #     self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
-        #         self.policy_loss
-        #     )
+    #     self.R = tf.placeholder(tf.float32, [None, 1])
+    #     self.inputs = tf.placeholder(tf.float32, [None, self.s_dim[0], self.s_dim[1]])
+    #     self.old_pi = tf.placeholder(tf.float32, [None, self.a_dim])
+    #     self.acts = tf.placeholder(tf.float32, [None, self.a_dim])
+    #     self.entropy_weight = tf.placeholder(tf.float32)
+    #     self.pi, self.val = self.CreateNetwork(inputs=self.inputs)
+    #     self.real_out = tf.clip_by_value(self.pi, ACTION_EPS, 1.0 - ACTION_EPS)
 
-        # with tf.variable_scope("critic_optimizer", reuse=tf.AUTO_REUSE):
-        #     self.val_loss = tflearn.mean_square(self.val, self.R)
-        #     self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
-        #         self.val_loss
-        #     )
+    #     self.entropy = -tf.reduce_sum(
+    #         tf.multiply(self.real_out, tf.log(self.real_out)),
+    #         reduction_indices=1,
+    #         keepdims=True,
+    #     )
+    #     self.adv = tf.stop_gradient(self.R - self.val)
+    #     self.ppo2loss = tf.minimum(
+    #         self.r(self.real_out, self.old_pi, self.acts) * self.adv,
+    #         tf.clip_by_value(
+    #             self.r(self.real_out, self.old_pi, self.acts), 1 - EPS, 1 + EPS
+    #         )
+    #         * self.adv,
+    #     )
+    #     self.dual_loss = tf.where(
+    #         tf.less(self.adv, 0.0),
+    #         tf.maximum(self.ppo2loss, 3.0 * self.adv),
+    #         self.ppo2loss,
+    #     )
 
-        self.policy_loss = -tf.reduce_sum(
-            self.dual_loss
-        ) - self.entropy_weight * tf.reduce_sum(self.entropy)
-        self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
-            self.policy_loss
-        )
+    #     # Get all network parameters
+    #     self.network_params = tf.get_collection(
+    #         tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_network"
+    #     )
+    #     self.network_params += tf.get_collection(
+    #         tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network"
+    #     )
 
-        self.val_loss = tflearn.mean_square(self.val, self.R)
-        self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
-            self.val_loss
-        )
+    #     # Set all network parameters
+    #     self.input_network_params = []
+    #     for param in self.network_params:
+    #         self.input_network_params.append(
+    #             tf.placeholder(tf.float32, shape=param.get_shape())
+    #         )
+    #     self.set_network_params_op = []
+    #     for idx, param in enumerate(self.input_network_params):
+    #         self.set_network_params_op.append(self.network_params[idx].assign(param))
+
+    #     # with tf.variable_scope("actor_optimizer", reuse=tf.AUTO_REUSE):
+    #     #     self.policy_loss = -tf.reduce_sum(
+    #     #         self.dual_loss
+    #     #     ) - self.entropy_weight * tf.reduce_sum(self.entropy)
+    #     #     self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
+    #     #         self.policy_loss
+    #     #     )
+
+    #     # with tf.variable_scope("critic_optimizer", reuse=tf.AUTO_REUSE):
+    #     #     self.val_loss = tflearn.mean_square(self.val, self.R)
+    #     #     self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
+    #     #         self.val_loss
+    #     #     )
+
+    #     self.policy_loss = -tf.reduce_sum(
+    #         self.dual_loss
+    #     ) - self.entropy_weight * tf.reduce_sum(self.entropy)
+    #     self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
+    #         self.policy_loss
+    #     )
+
+    #     self.val_loss = tflearn.mean_square(self.val, self.R)
+    #     self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
+    #         self.val_loss
+    #     )
 
     def predict(self, input):
         action = self.sess.run(self.real_out, feed_dict={self.inputs: input})
