@@ -64,9 +64,9 @@ ACTION_TABLE = {
 RANDOM_SEED = 42
 
 
-TRAIN_SEQ_LEN = 1000  # take as a train batch
-TRAIN_EPOCH = 500000
-MODEL_SAVE_INTERVAL = 300
+TRAIN_SEQ_LEN = 100  # take as a train batch
+TRAIN_EPOCH = 100000
+MODEL_SAVE_INTERVAL = 500
 
 TEST_TRACES = "./test/"
 # TEST_TRACES = "./SAM_test_trace/"

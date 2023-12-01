@@ -66,6 +66,11 @@ class Environment:
         _delay = 0
         _over_mahimahi_ptr_flag = False
 
+        if _mahimahi_ptr >= len(cooked_b):
+            _over_mahimahi_ptr_flag = True
+            _mahimahi_ptr, self.mahimahi_ptr = 1, 1
+            _last_mahimahi_time, self.last_mahimahi_time = 0, 0
+
         while True:  # download video chunk over mahimahi
             throughput = cooked_b[_mahimahi_ptr] * B_IN_MB / BITS_IN_BYTE
             duration = cooked_time[_mahimahi_ptr] - _last_mahimahi_time
@@ -89,14 +94,13 @@ class Environment:
 
             if _mahimahi_ptr >= len(cooked_b):
                 _over_mahimahi_ptr_flag = True
+                _mahimahi_ptr, self.mahimahi_ptr = 1, 1
+                _last_mahimahi_time, self.last_mahimahi_time = 0, 0
                 # loop back in the beginning
                 # note: trace file starts with time 0
 
         _delay *= MILLISECONDS_IN_SECOND
         _delay += LINK_RTT
-
-        # add a multiplicative noise to the delay
-        _delay *= np.random.uniform(NOISE_LOW, NOISE_HIGH)
 
         # rebuffer time
         rebuf = np.maximum(_delay - self.buffer_size, 0.0)
@@ -133,6 +137,8 @@ class Environment:
                     # loop back in the beginning
                     # note: trace file starts with time 0
                     _over_mahimahi_ptr_flag = True
+                    _mahimahi_ptr, self.mahimahi_ptr = 1, 1
+                    _last_mahimahi_time, self.last_mahimahi_time = 0, 0
 
         # Workting with the buffer
         return_buffer_size = self.buffer_size
@@ -147,6 +153,14 @@ class Environment:
         end_of_video = False
         if self.video_chunk_counter >= TOTAL_VIDEO_CHUNCK:
             end_of_video = True
+
+            self.trace_idx += 1
+            if self.trace_idx >= len(self.all_cooked_time):
+                self.trace_idx = 0
+
+            self.cooked_time, self.cooked_bw = self.get_double_channels_cooked_time_bw()
+            self.mahimahi_ptr = 1
+            self.last_mahimahi_time = 0
 
         _return = [
             _last_mahimahi_time,
@@ -182,7 +196,7 @@ class Environment:
 
         if sum(_over_mahimahi_ptr_flag):
             self.mahimahi_ptr = 1
-            self.last_mahimahi_time = 0
+            self.last_mahimahi_time = self.cooked_time[self.mahimahi_ptr - 1]
 
         if sum(end_of_video):
             self.buffer_size = 0

@@ -53,10 +53,10 @@ class ABREnv:
         ) / float(CHUNK_TIL_VIDEO_END_CAP)
 
         # Add on new information to the state
-        state = self.replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
         state = self.replace_last_n_elements(
             state, 0, buffer / BUFFER_NORM_FACTOR
         )  # 10 sec
+        state = self.replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
         state = self.replace_last_n_elements(
             state, 2, _last_video_chunk_size
         )  # kilo byte / ms
@@ -102,14 +102,19 @@ class ABREnv:
         # Get the action details
         action_detail = ACTION_TABLE[action]
         _last_bit_rate = [
-            VIDEO_BIT_RATE[_i] / float(np.max(VIDEO_BIT_RATE))
-            for _i in (action_detail[1], action_detail[3])
+            VIDEO_BIT_RATE[_i] / M_IN_K for _i in (action_detail[1], action_detail[3])
         ]
         return action_detail, _last_bit_rate
 
     @staticmethod
     def reward_bitrate(_last_bitrate):
-        return sum([np.log(_i) for _i in _last_bitrate])
+        # considering M_IN_K
+        return sum(
+            [
+                np.log(_i / float(np.max(VIDEO_BIT_RATE) * M_IN_K))
+                for _i in _last_bitrate
+            ]
+        )
 
     def penelty_smoothness(self, action, last_action):
         _, bit_rate = self.get_action_detail_bitrate(action)

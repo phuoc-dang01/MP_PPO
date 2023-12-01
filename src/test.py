@@ -1,7 +1,6 @@
 import os
 import sys
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
 import tensorflow.compat.v1 as tf
 import load_trace
@@ -15,14 +14,7 @@ import fixed_env as env
 
 from const import *
 
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="tensorflow")
-
-
-# tf.disable_v2_behavior()
-
-# os.chdir("./src/")
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
 # NN_MODEL = sys.argv[1]
@@ -33,21 +25,27 @@ def get_action_detail_bitrate(action):
     # Get the action details
     action_detail = ACTION_TABLE[action]
     _last_bit_rate = [
-        VIDEO_BIT_RATE[_i] / float(np.max(VIDEO_BIT_RATE))
-        for _i in (action_detail[1], action_detail[3])
+        VIDEO_BIT_RATE[_i] / M_IN_K for _i in (action_detail[1], action_detail[3])
     ]
     return action_detail, _last_bit_rate
 
+
 def reward_bitrate(_last_bitrate):
-    return sum([np.log(_i) for _i in _last_bitrate])
+    # considering M_IN_K
+    return sum(
+        [np.log(_i / float(np.max(VIDEO_BIT_RATE) * M_IN_K)) for _i in _last_bitrate]
+    )
+
 
 def penelty_smoothness(action, last_action):
     _, bit_rate = get_action_detail_bitrate(action)
     _, _last_bit_rate = get_action_detail_bitrate(last_action)
     return abs(sum([i[0] - i[1] for i in zip(bit_rate, _last_bit_rate)]))
 
+
 def get_last_video_chunk_size(video_chunk_size, delay):
     return [float(_i) / float(delay) / M_IN_K for _i in video_chunk_size]
+
 
 def replace_last_n_elements(arr, row_index, new_elements):
     # Check if new_elements is iterable (like a list or array), if not, make it a one-element list
@@ -58,10 +56,10 @@ def replace_last_n_elements(arr, row_index, new_elements):
     arr[row_index, -n:] = new_elements
     return arr
 
+
 def get_new_state_from_action(
-    input_state, action, buffer, video_chunk_size, delay, video_chunk_remain
+    state, action, video_chunk_size, buffer, delay, video_chunk_remain
 ):
-    state = input_state
     # Get the action details
     action_detail, _last_bit_rate = get_action_detail_bitrate(action)
 
@@ -71,8 +69,8 @@ def get_new_state_from_action(
     ) / float(CHUNK_TIL_VIDEO_END_CAP)
 
     # Add on new information to the state
-    state = replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
     state = replace_last_n_elements(state, 0, buffer / BUFFER_NORM_FACTOR)  # 10 sec
+    state = replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
     state = replace_last_n_elements(state, 2, _last_video_chunk_size)  # kilo byte / ms
     state = replace_last_n_elements(
         state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
@@ -81,10 +79,9 @@ def get_new_state_from_action(
 
     return state
 
+
 def main():
     NN_MODEL = sys.argv[1]
-    np.random.seed(RANDOM_SEED)
-
     # assert len(VIDEO_BIT_RATE) == A_DIM
 
     all_cooked_time, all_cooked_bw, all_file_names = load_trace.load_trace(TEST_TRACES)
@@ -181,15 +178,16 @@ def main():
                 state = np.array(s_batch[-1], copy=True)
 
             # get the new state
-            state = get_new_state_from_action(
-                state, action, buffer_size, video_chunk_size, delay, video_chunk_remain
+            new_state = get_new_state_from_action(
+                state, action, video_chunk_size, buffer_size, delay, video_chunk_remain
             )
 
-            action_prob = actor.predict(np.reshape(state, (1, S_INFO, S_LEN)))
+            action_prob = actor.predict(np.reshape(new_state, (1, S_INFO, S_LEN)))
             noise = np.random.gumbel(size=len(action_prob))
-            bit_rate = np.argmax(np.log(action_prob) + noise)
 
-            s_batch.append(state)
+            action = np.argmax(np.log(action_prob) + noise)
+
+            s_batch.append(new_state)
             entropy_ = -np.dot(action_prob, np.log(action_prob))
             entropy_record.append(entropy_)
 

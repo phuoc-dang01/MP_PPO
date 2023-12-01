@@ -28,6 +28,7 @@ if not os.path.exists(SUMMARY_DIR):
 
 NN_MODEL = None
 
+
 def testing(epoch, nn_model, log_file):
     # clean up the test results folder
     os.system("rm -r " + TEST_LOG_FOLDER)

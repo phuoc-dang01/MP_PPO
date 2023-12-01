@@ -30,7 +30,13 @@ class Network:
 
         # Advantage calculation
         self.adv = tf.stop_gradient(self.R - self.val)
-        self.ppo2loss = self.calculate_ppo_loss()
+        self.ppo2loss = tf.minimum(
+            self.r(self.real_out, self.old_pi, self.acts) * self.adv,
+            tf.clip_by_value(
+                self.r(self.real_out, self.old_pi, self.acts), 1 - EPS, 1 + EPS
+            )
+            * self.adv,
+        )
 
         self.dual_loss = tf.where(
             tf.less(self.adv, 0.0),
@@ -46,12 +52,26 @@ class Network:
             tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic"
         )
 
-        # # # Policy and Value Loss
-        # self.setup_policy_optimizer()
-        # self.setup_value_optimizer()
-
         # Set all network parameters
-        self.setup_network_params()
+        self.input_network_params = []
+        for param in self.network_params:
+            self.input_network_params.append(
+                tf.placeholder(tf.float32, shape=param.get_shape())
+            )
+        self.set_network_params_op = []
+        for idx, param in enumerate(self.input_network_params):
+            self.set_network_params_op.append(self.network_params[idx].assign(param))
+
+        self.policy_loss = -tf.reduce_sum(
+            self.dual_loss
+        ) - self.entropy_weight * tf.reduce_sum(self.entropy)
+        self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
+            self.policy_loss
+        )
+        self.val_loss = tflearn.mean_square(self.val, self.R)
+        self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
+            self.val_loss
+        )
 
     def _setup_placeholders(self):
         self.R = tf.placeholder(tf.float32, [None, 1])
@@ -62,12 +82,80 @@ class Network:
 
     def CreateNetwork(self, inputs):
         with tf.variable_scope("actor"):
-            actor_output = self._create_actor(inputs)
+            split_0 = tflearn.fully_connected(
+                inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
+            )
+            split_1 = tflearn.conv_1d(
+                inputs[:, 1:2, :],
+                FEATURE_NUM,
+                filter_size=4,
+                strides=1,
+                activation="relu",
+            )
+            split_2 = tflearn.conv_1d(
+                inputs[:, 2:3, :],
+                FEATURE_NUM,
+                filter_size=4,
+                strides=1,
+                activation="relu",
+            )
+            split_3 = tflearn.fully_connected(
+                inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+            )
+            split_4 = tflearn.fully_connected(
+                inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+            )
+
+            split_1_flat = tflearn.flatten(split_1)
+            split_2_flat = tflearn.flatten(split_2)
+
+            merge_net = tflearn.merge(
+                [split_0, split_1_flat, split_2_flat, split_3, split_4],
+                "concat",
+            )
+
+            pi_net = tflearn.fully_connected(merge_net, FEATURE_NUM, activation="relu")
+            pi = tflearn.fully_connected(pi_net, self.a_dim, activation="softmax")
 
         with tf.variable_scope("critic"):
-            critic_output = self._create_critic(inputs)
+            split_0 = tflearn.fully_connected(
+                inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
+            )
+            split_1 = tflearn.conv_1d(
+                inputs[:, 1:2, :],
+                FEATURE_NUM,
+                filter_size=4,
+                strides=1,
+                activation="relu",
+            )
+            split_2 = tflearn.conv_1d(
+                inputs[:, 2:3, :],
+                FEATURE_NUM,
+                filter_size=4,
+                strides=1,
+                activation="relu",
+            )
+            split_3 = tflearn.fully_connected(
+                inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+            )
+            split_4 = tflearn.fully_connected(
+                inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+            )
 
-        return actor_output, critic_output
+            split_1_flat = tflearn.flatten(split_1)
+            split_2_flat = tflearn.flatten(split_2)
+
+            merge_net = tflearn.merge(
+                [split_0, split_1_flat, split_2_flat, split_3, split_4],
+                "concat",
+            )
+
+            value_net = tflearn.fully_connected(
+                merge_net, FEATURE_NUM, activation="relu"
+            )
+            value = tflearn.fully_connected(value_net, 1, activation="linear")
+
+        return pi, value
 
     def _create_actor(self, inputs):
         split_0 = tflearn.fully_connected(
@@ -158,59 +246,6 @@ class Network:
         return tf.reduce_sum(
             tf.multiply(pi_new, acts), reduction_indices=1, keepdims=True
         ) / tf.reduce_sum(tf.multiply(pi_old, acts), reduction_indices=1, keepdims=True)
-
-    def calculate_ppo_loss(self):
-        return tf.minimum(
-            self.r(self.real_out, self.old_pi, self.acts) * self.adv,
-            tf.clip_by_value(
-                self.r(self.real_out, self.old_pi, self.acts), 1 - EPS, 1 + EPS
-            )
-            * self.adv,
-        )
-
-    # def setup_policy_optimizer(self):
-    #     with tf.variable_scope("actor_optimizer", reuse=tf.AUTO_REUSE):
-    #         self.policy_loss = -tf.reduce_sum(
-    #             self.dual_loss
-    #         ) - self.entropy_weight * tf.reduce_sum(self.entropy)
-    #         actor_vars = tf.get_collection(
-    #             tf.GraphKeys.TRAINABLE_VARIABLES, scope="actor_network"
-    #         )
-    #         self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
-    #             self.policy_loss, var_list=actor_vars
-    #         )
-
-    # def setup_value_optimizer(self):
-    #     with tf.variable_scope("critic_optimizer", reuse=tf.AUTO_REUSE):
-    #         self.val_loss = tflearn.mean_square(self.val, self.R)
-    #         critic_vars = tf.get_collection(
-    #             tf.GraphKeys.TRAINABLE_VARIABLES, scope="critic_network"
-    #         )
-    #         self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
-    #             self.val_loss, var_list=critic_vars
-    #         )
-
-    def setup_network_params(self):
-        # Set all network parameters
-        self.input_network_params = []
-        for param in self.network_params:
-            self.input_network_params.append(
-                tf.placeholder(tf.float32, shape=param.get_shape())
-            )
-        self.set_network_params_op = []
-        for idx, param in enumerate(self.input_network_params):
-            self.set_network_params_op.append(self.network_params[idx].assign(param))
-
-        self.policy_loss = -tf.reduce_sum(
-            self.dual_loss
-        ) - self.entropy_weight * tf.reduce_sum(self.entropy)
-        self.policy_opt = tf.train.AdamOptimizer(self.lr_rate).minimize(
-            self.policy_loss
-        )
-        self.val_loss = tflearn.mean_square(self.val, self.R)
-        self.val_opt = tf.train.AdamOptimizer(self.lr_rate * 10.0).minimize(
-            self.val_loss
-        )
 
     def predict(self, input):
         action = self.sess.run(self.real_out, feed_dict={self.inputs: input})
