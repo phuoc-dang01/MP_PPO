@@ -74,24 +74,24 @@ class Network:
             inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
         )
         split_1 = tflearn.conv_1d(
-            inputs[:, 1:2, :],
+            inputs[:, 1:3, :],
             FEATURE_NUM,
-            filter_size=4,
+            filter_size=[2,2],
             strides=1,
             activation="relu",
         )
         split_2 = tflearn.conv_1d(
-            inputs[:, 2:3, :],
+            inputs[:, 3:5, :],
             FEATURE_NUM,
-            filter_size=4,
+            filter_size=[2,2],
             strides=1,
             activation="relu",
         )
         split_3 = tflearn.fully_connected(
-            inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+            inputs[:, 5:6, -1], FEATURE_NUM, activation="relu"
         )
         split_4 = tflearn.fully_connected(
-            inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+            inputs[:, 6:7, -1], FEATURE_NUM, activation="relu"
         )
 
         split_1_flat = tflearn.flatten(split_1)
@@ -111,24 +111,24 @@ class Network:
             inputs[:, 0:1, -1], FEATURE_NUM, activation="relu"
         )
         split_1 = tflearn.conv_1d(
-            inputs[:, 1:2, :],
+            inputs[:, 1:3, :],
             FEATURE_NUM,
-            filter_size=4,
+            filter_size=[2,2],
             strides=1,
             activation="relu",
         )
         split_2 = tflearn.conv_1d(
-            inputs[:, 2:3, :],
+            inputs[:, 3:5, :],
             FEATURE_NUM,
-            filter_size=4,
+            filter_size=[2,2],
             strides=1,
             activation="relu",
         )
         split_3 = tflearn.fully_connected(
-            inputs[:, 3:4, -1], FEATURE_NUM, activation="relu"
+            inputs[:, 5:6, -1], FEATURE_NUM, activation="relu"
         )
         split_4 = tflearn.fully_connected(
-            inputs[:, 4:5, -1], FEATURE_NUM, activation="relu"
+            inputs[:, 6:7, -1], FEATURE_NUM, activation="relu"
         )
 
         split_1_flat = tflearn.flatten(split_1)

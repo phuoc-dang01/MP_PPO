@@ -14,11 +14,11 @@ import fixed_env as env
 
 from const import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 # log in format of time_stamp bit_rate buffer_size rebuffer_time chunk_size download_time reward
-# NN_MODEL = sys.argv[1]
-# NN_MODEL = "./pretrain/nn_model_ep_151200.ckpt"
+NN_MODEL = sys.argv[1]
+# NN_MODEL = "./pretrain/log_70k/nn_model_ep_70000.ckpt"
 
 
 def get_action_detail_bitrate(action):
@@ -71,20 +71,32 @@ def get_new_state_from_action(
         video_chunk_remain, CHUNK_TIL_VIDEO_END_CAP
     ) / float(CHUNK_TIL_VIDEO_END_CAP)
 
+
     # Add on new information to the state
-    state = replace_last_n_elements(state, 0, buffer / BUFFER_NORM_FACTOR)  # 10 sec
-    state = replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
-    state = replace_last_n_elements(state, 2, _last_video_chunk_size)  # kilo byte / ms
     state = replace_last_n_elements(
-        state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
+        state, 0, buffer / BUFFER_NORM_FACTOR
     )  # 10 sec
-    state = replace_last_n_elements(state, 4, _last_video_chunk_remain)  # 10 sec
+    state = replace_last_n_elements(state, 1, _last_bit_rate[0])  # last quality
+    state = replace_last_n_elements(state, 2, _last_bit_rate[1])  # last quality
+    state = replace_last_n_elements(
+        state, 3, _last_video_chunk_size[0]
+    )  # kilo byte / ms
+    state = replace_last_n_elements(
+        state, 4, _last_video_chunk_size[1]
+    )  # kilo byte / ms
+
+    state = replace_last_n_elements(
+        state, 5, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
+    )  # 10 sec
+    state = replace_last_n_elements(
+        state, 6, _last_video_chunk_remain
+    )  # 10 sec
 
     return state
 
 
 def main():
-    NN_MODEL = sys.argv[1]
+    # NN_MODEL = sys.argv[1]
     # assert len(VIDEO_BIT_RATE) == A_DIM
 
     all_cooked_time, all_cooked_bw, all_file_names = load_trace.load_trace(TEST_TRACES)

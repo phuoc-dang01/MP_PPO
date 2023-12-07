@@ -56,15 +56,20 @@ class ABREnv:
         state = self.replace_last_n_elements(
             state, 0, buffer / BUFFER_NORM_FACTOR
         )  # 10 sec
-        state = self.replace_last_n_elements(state, 1, _last_bit_rate)  # last quality
+        state = self.replace_last_n_elements(state, 1, _last_bit_rate[0])  # last quality
+        state = self.replace_last_n_elements(state, 2, _last_bit_rate[1])  # last quality
         state = self.replace_last_n_elements(
-            state, 2, _last_video_chunk_size
+            state, 3, _last_video_chunk_size[0]
         )  # kilo byte / ms
         state = self.replace_last_n_elements(
-            state, 3, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
+            state, 4, _last_video_chunk_size[1]
+        )  # kilo byte / ms
+
+        state = self.replace_last_n_elements(
+            state, 5, float(delay) / M_IN_K / BUFFER_NORM_FACTOR
         )  # 10 sec
         state = self.replace_last_n_elements(
-            state, 4, _last_video_chunk_remain
+            state, 6, _last_video_chunk_remain
         )  # 10 sec
 
         self.state = state

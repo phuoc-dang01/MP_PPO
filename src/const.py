@@ -3,7 +3,7 @@ VIDEO_BIT_RATE = [300.0, 1850.0, 4300.0]  # Kbps
 BITRATE_LEVELS = 3
 
 S_INFO = (
-    5  # last quality, buffer_size, last video chunks size, delay, chunk_til_video_end
+    7  # last quality, buffer_size, last video chunks size, delay, chunk_til_video_end
 )
 S_LEN = 8  # take how many frames in the past
 S_DIM = (S_INFO, S_LEN)
