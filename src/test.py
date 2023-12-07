@@ -31,10 +31,13 @@ def get_action_detail_bitrate(action):
 
 
 def reward_bitrate(_last_bitrate):
-    # considering M_IN_K
-    return sum(
-        [np.log(_i / float(np.max(VIDEO_BIT_RATE) * M_IN_K)) for _i in _last_bitrate]
-    )
+        # return sum(
+        #     [
+        #         np.log(_i / float(np.max(VIDEO_BIT_RATE) * M_IN_K))
+        #         for _i in _last_bitrate
+        #     ]
+        # )
+        return sum([_i / M_IN_K for _i in _last_bitrate])
 
 
 def penelty_smoothness(action, last_action):

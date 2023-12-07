@@ -6,7 +6,15 @@ import sys
 from env import ABREnv
 import ppo2 as network
 import tensorflow.compat.v1 as tf
+
+tf.disable_eager_execution()
+
 import test as test_ppo
+
+from tensorflow.core.protobuf import config_pb2
+
+run_options = config_pb2.RunOptions()
+run_options.report_tensor_allocations_upon_oom = True
 
 from const import *
 

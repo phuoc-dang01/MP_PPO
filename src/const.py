@@ -64,7 +64,7 @@ ACTION_TABLE = {
 RANDOM_SEED = 42
 
 
-TRAIN_SEQ_LEN = 100  # take as a train batch
+TRAIN_SEQ_LEN = 10  # take as a train batch
 TRAIN_EPOCH = 100000
 MODEL_SAVE_INTERVAL = 500
 
